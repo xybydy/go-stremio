@@ -10,8 +10,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
 
-	"github.com/deflix-tv/go-stremio"
-	"github.com/deflix-tv/go-stremio/pkg/cinemeta"
+	"github.com/xybydy/go-stremio"
+	"github.com/xybydy/go-stremio/pkg/cinemeta"
 )
 
 var (

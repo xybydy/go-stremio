@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/deflix-tv/go-stremio"
+	"github.com/xybydy/go-stremio"
 )
 
 var (

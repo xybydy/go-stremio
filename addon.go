@@ -21,7 +21,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
 
-	"github.com/deflix-tv/go-stremio/pkg/cinemeta"
+	"github.com/xybydy/go-stremio/pkg/cinemeta"
 )
 
 // ManifestCallback is the callback for manifest requests, so mostly addon installations.
@@ -202,7 +202,7 @@ func (a *Addon) SetManifestCallback(callback ManifestCallback) {
 // Run starts the remote addon. It sets up an HTTP server that handles requests to "/manifest.json" etc. and gracefully handles shutdowns.
 // The call is *blocking*, so use the stoppingChan param if you want to be notified when the addon is about to shut down
 // because of a system signal like Ctrl+C or `docker stop`. It should be a buffered channel with a capacity of 1.
-func (a *Addon) Run(stoppingChan chan bool) {
+func (a *Addon) Run(stoppingChan chan bool, fiberConf fiberConfig) {
 	logger := a.logger
 	defer logger.Sync()
 
@@ -211,28 +211,32 @@ func (a *Addon) Run(stoppingChan chan bool) {
 		logger.Fatal("The passed stopping channel isn't buffered")
 	}
 
+	if fiberConf == nil{
+		fiberConf = fiber.Config{
+			ErrorHandler: func(c *fiber.Ctx, err error) error {
+				code := fiber.StatusInternalServerError
+				if e, ok := err.(*fiber.Error); ok {
+					code = e.Code
+					logger.Error("Fiber's error handler was called", zap.Error(e), zap.String("url", c.OriginalURL()))
+				} else {
+					logger.Error("Fiber's error handler was called", zap.Error(err), zap.String("url", c.OriginalURL()))
+				}
+				c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
+				return c.Status(code).SendString("An internal server error occurred")
+			},
+			DisableStartupMessage: true,
+			BodyLimit:             0,
+			ReadTimeout:           5 * time.Second,
+			// Docker stop only gives us 10s. We want to close all connections before that.
+			WriteTimeout: 9 * time.Second,
+			IdleTimeout:  9 * time.Second,
+		}
+	}
+
 	// Fiber app
 
 	logger.Info("Setting up server...")
-	app := fiber.New(fiber.Config{
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			code := fiber.StatusInternalServerError
-			if e, ok := err.(*fiber.Error); ok {
-				code = e.Code
-				logger.Error("Fiber's error handler was called", zap.Error(e), zap.String("url", c.OriginalURL()))
-			} else {
-				logger.Error("Fiber's error handler was called", zap.Error(err), zap.String("url", c.OriginalURL()))
-			}
-			c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
-			return c.Status(code).SendString("An internal server error occurred")
-		},
-		DisableStartupMessage: true,
-		BodyLimit:             0,
-		ReadTimeout:           5 * time.Second,
-		// Docker stop only gives us 10s. We want to close all connections before that.
-		WriteTimeout: 9 * time.Second,
-		IdleTimeout:  9 * time.Second,
-	})
+	app := fiber.New(fiberConf)
 
 	// Middlewares
 
