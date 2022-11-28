@@ -47,7 +47,7 @@ func main() {
 		panic(err)
 	}
 
-	addon.Run(nil)
+	addon.Run(nil, nil)
 }
 
 func movieHandler(ctx context.Context, id string, userData interface{}) ([]stremio.StreamItem, error) {

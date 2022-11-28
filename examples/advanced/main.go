@@ -57,6 +57,7 @@ var (
 )
 
 // content is our static web server content.
+//
 //go:embed web/index.html
 var content embed.FS
 
@@ -148,7 +149,7 @@ func main() {
 		<-stoppingChan
 		logger.Info("Addon stopping")
 	}()
-	addon.Run(stoppingChan)
+	addon.Run(stoppingChan, nil)
 }
 
 func createMovieHandler(logger *zap.Logger) stremio.StreamHandler {
