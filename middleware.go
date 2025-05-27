@@ -1,6 +1,7 @@
 package stremio
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -9,10 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xybydy/go-stremio/types"
+
 	"github.com/VictoriaMetrics/metrics"
-	"github.com/deflix-tv/go-stremio/pkg/cinemeta"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +23,7 @@ type customMiddleware struct {
 	mw   fiber.Handler
 }
 
-func createLoggingMiddleware(logger *zap.Logger, logIPs, logUserAgent, logMediaName bool, requiresUserData bool) fiber.Handler {
+func createLoggingMiddleware(logger *zap.Logger, logIPs, logUserAgent, logMediaName bool) fiber.Handler {
 	// We always log status, duration, method, URL
 	zapFieldCount := 4
 	if logIPs {
@@ -32,12 +34,18 @@ func createLoggingMiddleware(logger *zap.Logger, logIPs, logUserAgent, logMediaN
 		zapFieldCount++
 	}
 
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		start := time.Now()
 
 		// First call the other handlers in the chain!
 		if err := c.Next(); err != nil {
-			logger.Error("Received error from next middleware or handler in logging middleware", zap.Error(err))
+			var fiberError *fiber.Error
+			errors.As(err, &fiberError)
+			if fiberError.Code <= 499 && fiberError.Code >= 400 {
+				c.Status(fiberError.Code).SendString(fmt.Sprintf("%d %s", fiberError.Code, fiberError.Message))
+			} else {
+				logger.Error("Received error from next middleware or handler in logging middleware", zap.Error(err))
+			}
 		}
 
 		// Then log
@@ -48,9 +56,9 @@ func createLoggingMiddleware(logger *zap.Logger, logIPs, logUserAgent, logMediaN
 		// We ignore ErrNoMeta here, because actual issues are logged by the meta middleware already, and here we'd have to check for things like "is config required but not set", "is the ID bad and the ID matcher was used" which are all valid cases to not have meta in the context.
 		var mediaName string
 		if logMediaName && isStream {
-			if meta, err := cinemeta.GetMetaFromContext(c.Context()); err != nil && err != cinemeta.ErrNoMeta {
+			if meta, err := GetMetaFromContext(c.Context()); err != nil && !errors.Is(err, ErrNoMeta) {
 				logger.Error("Couldn't get meta from context", zap.Error(err))
-			} else if err != cinemeta.ErrNoMeta {
+			} else if !errors.Is(err, ErrNoMeta) {
 				mediaName = fmt.Sprintf("%v (%v)", meta.Name, meta.ReleaseInfo)
 			}
 		}
@@ -109,7 +117,7 @@ func createMetricsMiddleware() fiber.Handler {
 	catalogRegex := regexp.MustCompile(`^/.*/catalog/.*/.*\.json`)
 	streamRegex := regexp.MustCompile(`^/.*/stream/.*/.*\.json`)
 
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if err := c.Next(); err != nil {
 			errCounter.Inc()
 			return err
@@ -131,23 +139,25 @@ func createMetricsMiddleware() fiber.Handler {
 		}
 
 		if endpoint == "" {
-			if strings.HasPrefix(path, "/catalog") {
+			switch {
+			case strings.HasPrefix(path, "/catalog"):
 				endpoint = "catalog"
-			} else if strings.HasPrefix(path, "/stream") {
+			case strings.HasPrefix(path, "/stream"):
 				endpoint = "stream"
-			} else if strings.HasPrefix(path, "/configure") {
+			case strings.HasPrefix(path, "/configure"):
 				endpoint = "configure-other"
-			} else if strings.HasPrefix(path, "/debug/pprof") {
+			case strings.HasPrefix(path, "/debug/pprof"):
 				endpoint = "pprof"
 			}
 		}
 
 		if endpoint == "" {
-			if manifestRegex.MatchString(path) {
+			switch {
+			case manifestRegex.MatchString(path):
 				endpoint = "manifest-data"
-			} else if catalogRegex.MatchString(path) {
+			case catalogRegex.MatchString(path):
 				endpoint = "catalog-data"
-			} else if streamRegex.MatchString(path) {
+			case streamRegex.MatchString(path):
 				endpoint = "stream-data"
 			}
 		}
@@ -180,17 +190,18 @@ func corsMiddleware() fiber.Handler {
 		// 	  Origin:[https://app.strem.io]
 		// 	  User-Agent:[Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) QtWebEngine/5.9.9 Chrome/56.0.2924.122 Safari/537.36 StremioShell/4.4.106]
 		// ]
-		AllowHeaders: "Accept" +
-			", Accept-Language" +
-			", Content-Type" +
-			", Origin" + // Not "safelisted" in the specification
-
-			// Non-default for gorilla/handlers CORS handling
-			", Accept-Encoding" +
-			", Content-Language" + // "Safelisted" in the specification
-			", X-Requested-With",
-		AllowMethods: "GET,HEAD",
-		AllowOrigins: "*",
+		AllowHeaders: []string{"*"},
+		//AllowHeaders: "Accept" +
+		//	", Accept-Language" +
+		//	", Content-Type" +
+		//	", Origin" + // Not "safelisted" in the specification
+		//
+		//	// Non-default for gorilla/handlers CORS handling
+		//	", Accept-Encoding" +
+		//	", Content-Language" + // "Safelisted" in the specification
+		//	", X-Requested-With",
+		AllowMethods: []string{"GET,HEAD"},
+		AllowOrigins: []string{"*"},
 	}
 	return cors.New(config)
 }
@@ -199,12 +210,12 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 	streamIDregex := regexp.MustCompile(streamIDregexString)
 	if requiresUserData {
 		// Catalog
-		app.Use("/catalog/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/catalog/:type/:id.json", func(c fiber.Ctx) error {
 			// If user data is required but not sent, let clients know they sent a bad request.
 			// That's better than responding with 404, leading to clients thinking it's a server-side error.
 			return c.SendStatus(fiber.StatusBadRequest)
 		})
-		app.Use("/:userData/catalog/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/:userData/catalog/:type/:id.json", func(c fiber.Ctx) error {
 			if c.Params("type", "") == "" || c.Params("id", "") == "" {
 				logger.Debug("Rejecting bad request due to missing type or ID")
 				return c.SendStatus(fiber.StatusBadRequest)
@@ -213,10 +224,10 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 			return c.Next()
 		})
 		// Stream
-		app.Use("/stream/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/stream/:type/:id.json", func(c fiber.Ctx) error {
 			return c.SendStatus(fiber.StatusBadRequest)
 		})
-		app.Use("/:userData/stream/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/:userData/stream/:type/:id.json", func(c fiber.Ctx) error {
 			id := c.Params("id", "")
 			if c.Params("type", "") == "" || id == "" {
 				logger.Debug("Rejecting bad request due to missing type or ID")
@@ -237,7 +248,7 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 		})
 	} else {
 		// Catalog
-		app.Use("/catalog/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/catalog/:type/:id.json", func(c fiber.Ctx) error {
 			if c.Params("type", "") == "" || c.Params("id", "") == "" {
 				logger.Debug("Rejecting bad request due to missing type or ID")
 				return c.SendStatus(fiber.StatusBadRequest)
@@ -245,7 +256,7 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 			c.Locals("isConfigured", true)
 			return c.Next()
 		})
-		app.Use("/:userData/catalog/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/:userData/catalog/:type/:id.json", func(c fiber.Ctx) error {
 			if c.Params("type", "") == "" || c.Params("id", "") == "" {
 				logger.Debug("Rejecting bad request due to missing type or ID")
 				return c.SendStatus(fiber.StatusBadRequest)
@@ -254,7 +265,7 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 			return c.Next()
 		})
 		// Stream
-		app.Use("/stream/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/stream/:type/:id.json", func(c fiber.Ctx) error {
 			id := c.Params("id", "")
 			if c.Params("type", "") == "" || id == "" {
 				logger.Debug("Rejecting bad request due to missing type or ID")
@@ -272,7 +283,7 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 			c.Locals("isStream", true)
 			return c.Next()
 		})
-		app.Use("/:userData/stream/:type/:id.json", func(c *fiber.Ctx) error {
+		app.Use("/:userData/stream/:type/:id.json", func(c fiber.Ctx) error {
 			id := c.Params("id", "")
 			if c.Params("type", "") == "" || id == "" {
 				logger.Debug("Rejecting bad request due to missing type or ID")
@@ -295,7 +306,7 @@ func addRouteMatcherMiddleware(app *fiber.App, requiresUserData bool, streamIDre
 }
 
 func createMetaMiddleware(metaClient MetaFetcher, putMetaInHandlerContext, logMediaName bool, logger *zap.Logger) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		// If we should put the meta in the context for *handlers* we get the meta synchronously.
 		// Otherwise we only need it for logging and can get the meta asynchronously.
 		if putMetaInHandlerContext {
@@ -312,14 +323,13 @@ func createMetaMiddleware(metaClient MetaFetcher, putMetaInHandlerContext, logMe
 			// Wait so that the meta is in the context when returning to the logging middleware
 			wg.Wait()
 			return err
-		} else {
-			return c.Next()
 		}
+		return c.Next()
 	}
 }
 
-func putMetaInContext(c *fiber.Ctx, metaClient MetaFetcher, logger *zap.Logger) {
-	var meta cinemeta.Meta
+func putMetaInContext(c fiber.Ctx, metaClient MetaFetcher, logger *zap.Logger) {
+	var meta types.MetaItem
 	var err error
 	// type and id can never be empty, because that's been checked by a previous middleware
 	t := c.Params("type", "")
@@ -353,7 +363,7 @@ func putMetaInContext(c *fiber.Ctx, metaClient MetaFetcher, logger *zap.Logger) 
 			logger.Warn("Can't parse episode as int", zap.String("episode", splitID[2]))
 			return
 		}
-		meta, err = metaClient.GetTVShow(c.Context(), splitID[0], season, episode)
+		meta, err = metaClient.GetSeries(c.Context(), splitID[0], season, episode)
 		if err != nil {
 			logger.Error("Couldn't get TV show info with MetaFetcher", zap.Error(err))
 			return

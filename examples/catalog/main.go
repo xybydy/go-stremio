@@ -1,22 +1,24 @@
 package main
 
 import (
-	"context"
+	`context`
+	`net/url`
 	"time"
 
-	"github.com/deflix-tv/go-stremio"
+	"github.com/xybydy/go-stremio"
+	`github.com/xybydy/go-stremio/types`
 )
 
 var (
 	version = "0.1.0"
 
-	manifest = stremio.Manifest{
+	manifest = types.Manifest{
 		ID:          "com.example.blender-catalog",
 		Name:        "Blender movie catalog",
 		Description: "Catalog addon for free movies that were made with Blender",
 		Version:     version,
 
-		ResourceItems: []stremio.ResourceItem{
+		ResourceItems: []types.ResourceItem{
 			{
 				Name: "catalog",
 			},
@@ -25,7 +27,7 @@ var (
 		Catalogs: catalogs,
 	}
 
-	catalogs = []stremio.CatalogItem{
+	catalogs = []types.CatalogItem{
 		{
 			Type: "movie",
 			ID:   "blender",
@@ -46,19 +48,19 @@ func main() {
 		HandleEtagCatalogs:  true,
 	}
 
-	addon, err := stremio.NewAddon(manifest, catalogHandlers, nil, options)
+	addon, err := stremio.NewAddon(manifest, catalogHandlers, nil, nil, nil, options)
 	if err != nil {
 		panic(err)
 	}
 
-	addon.Run(nil)
+	addon.Run(nil, nil)
 }
 
-func movieHandler(ctx context.Context, id string, userData interface{}) ([]stremio.MetaPreviewItem, error) {
+func movieHandler(_ context.Context, id string, _ url.Values, _ any) ([]types.MetaPreviewItem, error) {
 	if id != "blender" {
-		return nil, stremio.NotFound
+		return nil, stremio.ErrNotFound
 	}
-	return []stremio.MetaPreviewItem{
+	return []types.MetaPreviewItem{
 		{
 			ID:     "tt1254207",
 			Type:   "movie",

@@ -23,7 +23,7 @@ import (
 func NewLogger(level, encoding string) (*zap.Logger, error) {
 	logLevel, err := parseZapLevel(level)
 	if err != nil {
-		return nil, fmt.Errorf("Couldn't parse log level: %w", err)
+		return nil, fmt.Errorf("couldn't parse log level: %w", err)
 	}
 	logConfig := zap.NewDevelopmentConfig()
 	logConfig.Level = zap.NewAtomicLevelAt(logLevel)
@@ -54,7 +54,7 @@ func NewLogger(level, encoding string) (*zap.Logger, error) {
 	}
 	logger, err := logConfig.Build()
 	if err != nil {
-		return nil, fmt.Errorf("Couldn't create logger: %w", err)
+		return nil, fmt.Errorf("couldn't create logger: %w", err)
 	}
 
 	return logger, nil

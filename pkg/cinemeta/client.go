@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
+	"github.com/xybydy/go-stremio/types"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -74,16 +75,16 @@ func NewClient(opts ClientOptions, cache Cache, logger *zap.Logger) *Client {
 // The context can control the lifetime of the request, and if for example the timeout is shorter
 // than the HTTP client's configured timeout then it takes precedence.
 // If no timeout is set in the context, the HTTP client's timeout takes effect.
-func (c *Client) GetMovie(ctx context.Context, imdbID string) (Meta, error) {
+func (c *Client) GetMovie(ctx context.Context, imdbID string) (types.MetaItem, error) {
 	return c.getMeta(ctx, movie, imdbID, 0, 0)
 }
 
-// GetTVShow returns the meta object either from the cache or from Cinemeta.
+// GetSeries returns the meta object either from the cache or from Cinemeta.
 // It automatically fills the cache with new Cinemeta responses.
 // The context can control the lifetime of the request, and if for example the timeout is shorter
 // than the HTTP client's configured timeout then it takes precedence.
 // If no timeout is set in the context, the HTTP client's timeout takes effect.
-func (c *Client) GetTVShow(ctx context.Context, imdbID string, season int, episode int) (Meta, error) {
+func (c *Client) GetSeries(ctx context.Context, imdbID string, season int, episode int) (types.MetaItem, error) {
 	return c.getMeta(ctx, tvShow, imdbID, season, episode)
 }
 
@@ -92,7 +93,7 @@ func (c *Client) GetTVShow(ctx context.Context, imdbID string, season int, episo
 // The context can control the lifetime of the request, and if for example the timeout is shorter
 // than the HTTP client's configured timeout then it takes precedence.
 // If no timeout is set in the context, the HTTP client's timeout takes effect.
-func (c *Client) getMeta(ctx context.Context, t mediaType, imdbID string, season int, episode int) (Meta, error) {
+func (c *Client) getMeta(ctx context.Context, t mediaType, imdbID string, season int, episode int) (types.MetaItem, error) {
 	var zapFieldIMDbID zapcore.Field
 	switch t {
 	case movie:
@@ -112,46 +113,47 @@ func (c *Client) getMeta(ctx context.Context, t mediaType, imdbID string, season
 		c.logger.Debug("Hit cache for meta, but item is expired", zap.Duration("expiredSince", expiredSince), zapFieldIMDbID)
 	} else {
 		c.logger.Debug("Hit cache for meta, returning result")
-		return meta, nil
+		convMeta := meta.(types.MetaItem)
+		return convMeta, nil
 	}
 
-	var reqUrl string
+	var reqURL string
 	switch t {
 	case movie:
-		reqUrl = c.baseURL + "/meta/movie/" + imdbID + ".json"
+		reqURL = c.baseURL + "/meta/movie/" + imdbID + ".json"
 	case tvShow:
-		reqUrl = c.baseURL + "/meta/series/" + imdbID + ".json"
+		reqURL = c.baseURL + "/meta/series/" + imdbID + ".json"
 	}
 
 	// Then check web service
-	req, err := http.NewRequestWithContext(ctx, "GET", reqUrl, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return Meta{}, fmt.Errorf("Couldn't create request: %v", err)
+		return types.MetaItem{}, fmt.Errorf("couldn't create request: %w", err)
 	}
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return Meta{}, fmt.Errorf("Couldn't GET %v: %v", reqUrl, err)
+		return types.MetaItem{}, fmt.Errorf("couldn't GET %v: %w", reqURL, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return Meta{}, fmt.Errorf("Bad GET response: %v", res.StatusCode)
+		return types.MetaItem{}, fmt.Errorf("bad GET response: %v", res.StatusCode)
 	}
-	resBody, err := ioutil.ReadAll(res.Body)
+	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		return Meta{}, fmt.Errorf("Couldn't read response body: %v", err)
+		return types.MetaItem{}, fmt.Errorf("couldn't read response body: %w", err)
 	}
-	cineRes := cinemetaResponse{}
+	cineRes := types.MetaItem{}
 	if err := json.Unmarshal(resBody, &cineRes); err != nil {
-		return Meta{}, fmt.Errorf("Couldn't unmarshal response body: %v", err)
+		return types.MetaItem{}, fmt.Errorf("couldn't unmarshal response body: %w", err)
 	}
-	if cineRes.Meta.Name == "" {
-		return Meta{}, fmt.Errorf("Couldn't find %v name in Cinemeta response", t)
+	if cineRes.Name == "" {
+		return types.MetaItem{}, fmt.Errorf("couldn't find %v name in Cinemeta response", t)
 	}
 
 	// Fill cache
-	if err = c.cache.Set(imdbID, cineRes.Meta); err != nil {
-		c.logger.Error("Couldn't cache meta", zap.Error(err), zap.String("meta", fmt.Sprintf("%+v", cineRes.Meta)), zapFieldIMDbID)
+	if err = c.cache.Set(imdbID, types.MetaItem{}); err != nil {
+		c.logger.Error("Couldn't cache meta", zap.Error(err), zap.String("meta", fmt.Sprintf("%+v", cineRes)), zapFieldIMDbID)
 	}
 
-	return cineRes.Meta, nil
+	return cineRes, nil
 }

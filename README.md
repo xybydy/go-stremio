@@ -1,6 +1,6 @@
 # go-stremio
 
-Stremio addon SDK for Go
+Stremio addon SDK for Go, revisited version by xybydy, please see [Changes](#changes)
 
 ## Contents
 
@@ -10,6 +10,7 @@ Stremio addon SDK for Go
 4. [Example](#example)
 5. [Advantages](#advantages)
 6. [Related projects](#related-projects)
+7. [Changes](#changes)
 
 ## Introduction
 
@@ -30,7 +31,7 @@ It provides the most important parts of the Node.js SDK and depending on the req
 ## Features
 
 - [x] Based on the [Express](https://expressjs.com)-inspired web framework [Fiber](https://gofiber.io)
-- [x] All required *types* for building catalog and stream addons
+- [x] All required _types_ for building catalog and stream addons
 - [x] Graceful server shutdown
   - [x] With optional channel to be notified about the shutdown
 - [x] CORS middleware to allow requests from Stremio
@@ -42,7 +43,7 @@ It provides the most important parts of the Node.js SDK and depending on the req
 - [x] Optional cache control and ETag handling
 - [x] Optional custom middlewares
 - [x] Optional custom endpoints
-- [x] Custom user data (users can have *settings* for your addon!)
+- [x] Custom user data (users can have _settings_ for your addon!)
   - [x] Including the handling of Stremio's requests to the "/configure" endpoint to show a webpage for the addon's configuration
   - [x] With optional URL-safe Base64 decoding and JSON unmarshalling
 - [x] Addon installation callback (manifest endpoint)
@@ -50,7 +51,7 @@ It provides the most important parts of the Node.js SDK and depending on the req
 - [x] Optional stream ID filtering via regex
 - [x] Optional collection and export of basic metrics for [Prometheus](https://prometheus.io)
 
-Current *non*-features, as they're usually part of a reverse proxy deployed in front of the service:
+Current _non_-features, as they're usually part of a reverse proxy deployed in front of the service:
 
 - TLS termination (for using HTTP*S*)
 - Rate limiting (against DoS attacks)
@@ -66,7 +67,7 @@ package main
 import (
     "context"
 
-    "github.com/deflix-tv/go-stremio"
+    "github.com/xybydy/go-stremio"
 )
 
 var (
@@ -90,7 +91,7 @@ func main() {
     addon.Run(nil)
 }
 
-func movieHandler(ctx context.Context, id string, userData interface{}) ([]stremio.StreamItem, error) {
+func movieHandler(ctx context.Context, id string, userData any) ([]stremio.StreamItem, error) {
     // We only serve Big Buck Bunny and Sintel
     if id == "tt1254207" {
         return []stremio.StreamItem{
@@ -119,51 +120,51 @@ func movieHandler(ctx context.Context, id string, userData interface{}) ([]strem
 
 Some reasons why you might want to consider developing an addon in Go with this SDK:
 
-Criterium|Node.js addon|Go addon
----------|-------------|--------
-Direct SDK dependencies|9|5
-Transitive SDK dependencies|90¹|36²
-Size of a runnable addon|27 MB³|11-15 MB⁴
-Number of artifacts to deploy|depends⁵|1
-Runtime dependencies|Node.js|-
-Concurrency|Single-threaded|Multi-threaded
+| Criterium                     | Node.js addon   | Go addon       |
+| ----------------------------- | --------------- | -------------- |
+| Direct SDK dependencies       | 9               | 5              |
+| Transitive SDK dependencies   | 90¹             | 36²            |
+| Size of a runnable addon      | 27 MB³          | 11-15 MB⁴      |
+| Number of artifacts to deploy | depends⁵        | 1              |
+| Runtime dependencies          | Node.js         | -              |
+| Concurrency                   | Single-threaded | Multi-threaded |
 
 ¹) `ls -l node_modules | wc -l` - 1  
 ²) `go list -m all | wc -l` - 1 - (number of direct dependencies)  
 ³) `du -h --max-depth=0 node_modules`  
 ⁴) The smaller binary is easily achieved by compiling with `-ldflags "-s -w"`  
-⁵) All your JavaScript files and the `package.json` if you can install the depencencies with `npm` on the server, otherwise (like in a Docker container) you also need all the `node_modules`, which are hundreds to thousands of files.  
+⁵) All your JavaScript files and the `package.json` if you can install the depencencies with `npm` on the server, otherwise (like in a Docker container) you also need all the `node_modules`, which are hundreds to thousands of files.
 
 Looking at the performance it depends a lot on what your addon does. Due to the single-threaded nature of Node.js, the more CPU-bound tasks your addon does, the bigger the performance difference will be (in favor of Go). Here we compare the simplest possible addon to be able to compare just the SDKs and not any additional overhead (like DB access):
 
 On a [DigitalOcean](https://www.digitalocean.com/) "Droplet" of type "Basic" (shared CPU) with 2 cores and 2 GB RAM, which costs $15/month:
 
-Criterium|Node.js addon|Go addon
----------|-------------|--------
-Startup time to 1st request¹|400ms-4s|20-30ms
-Max rps² @ 1000 connections|Local³: 1,000<br>Remote⁴: 1,000|Local³: 17,000<br>Remote⁴: 29,000
-Memory usage @ 1000 connections|Idle: 42 MB<br>Load⁵: 73 MB|Idle: 11 MB<br>Load⁵: 45 MB
+| Criterium                       | Node.js addon                   | Go addon                          |
+| ------------------------------- | ------------------------------- | --------------------------------- |
+| Startup time to 1st request¹    | 400ms-4s                        | 20-30ms                           |
+| Max rps² @ 1000 connections     | Local³: 1,000<br>Remote⁴: 1,000 | Local³: 17,000<br>Remote⁴: 29,000 |
+| Memory usage @ 1000 connections | Idle: 42 MB<br>Load⁵: 73 MB     | Idle: 11 MB<br>Load⁵: 45 MB       |
 
 On a [DigitalOcean](https://www.digitalocean.com/) "Droplet" of type "CPU-Optimized" (dedicated CPU) with 2 cores and 4 GB RAM, which costs $40/month:
 
-Criterium|Node.js addon|Go addon
----------|-------------|--------
-Startup time to 1st request¹|200-400ms|9-20ms
-Max rps² @ 1000 connections|Local³: 5,000<br>Remote⁴: 1,000|Local³: 39,000<br>Remote⁴: 39,000
-Memory usage @ 1000 connections|Idle: 42 MB<br>Load⁵: 90 MB|Idle: 11 MB<br>Load⁵: 47 MB
+| Criterium                       | Node.js addon                   | Go addon                          |
+| ------------------------------- | ------------------------------- | --------------------------------- |
+| Startup time to 1st request¹    | 200-400ms                       | 9-20ms                            |
+| Max rps² @ 1000 connections     | Local³: 5,000<br>Remote⁴: 1,000 | Local³: 39,000<br>Remote⁴: 39,000 |
+| Memory usage @ 1000 connections | Idle: 42 MB<br>Load⁵: 90 MB     | Idle: 11 MB<br>Load⁵: 47 MB       |
 
 ¹) Measured using [ttfok](https://github.com/doingodswork/ttfok) and the code in [benchmark](benchmark). This metric is relevant in case you want to use a "serverless functions" service (like [AWS Lambda](https://aws.amazon.com/lambda/) or [Vercel](https://vercel.com/) (former ZEIT Now)) that doesn't keep your service running between requests.  
 ²) Max number of requests per second where the p99 latency is still < 100ms  
 ³) The load testing tool ran on a different server, but in the same datacenter and the requests were sent within a private network. Note that DigitalOcean seems to have performance issues with their local "VPC Network" (which didn't affect the Node.js service as it maxed out the CPU, but the Go service maxed out the network before the CPU).  
-⁴) The load testing tool ran on a different server *in a different datacenter of another cloud provider in another city* for more real world-like circumstances  
-⁵) Resident size (`RES` in `htop`) at a request rate *half* of what we measured as maximum  
+⁴) The load testing tool ran on a different server _in a different datacenter of another cloud provider in another city_ for more real world-like circumstances  
+⁵) Resident size (`RES` in `htop`) at a request rate _half_ of what we measured as maximum
 
 The load tests were run under the following circumstances:
 
 - We used the addon code, load testing tool and setup described in [benchmark](benchmark)
 - We ran the Node.js and Go service on the same Droplet and conducted the benchmark on the same day, several minutes apart, so that the resource sharing of the VPS is about the same. Note that when you try to reproduce the benchmark results, a different VPS could be subject to more or less resource sharing with other VPS on the virtualization host. Other times of day can also lead to differing benchmark results (e.g. low traffic on a Monday morning, high traffic on a Saturday evening).
 - The load tests ran for 60s (to have a somewhat meaningful p99 value), with previous warmup
-- The client servers (both the one in the same DC and the one in a different DC of another cloud provider in another city) used to run the load testing tool were high-powered (8 *dedicated* cores, 32 GB RAM)
+- The client servers (both the one in the same DC and the one in a different DC of another cloud provider in another city) used to run the load testing tool were high-powered (8 _dedicated_ cores, 32 GB RAM)
 
 Additional observations:
 
@@ -174,10 +175,21 @@ Additional observations:
 
 > Note:
 >
-> - This Go SDK is still young. Some features will be added in the future that might decrease its performance, while others will increase it.  
-> - The Node.js addon was run as a single instance. You can do more complex deployments with a load balancer like [HAProxy](https://www.haproxy.org/) and multiple instances of the same Node.js service on a single machine to take advantage of multiple CPU cores. But then you should also activate preforking in the Go addon for using several OS processes in parallel, which we didn't do.  
+> - This Go SDK is still young. Some features will be added in the future that might decrease its performance, while others will increase it.
+> - The Node.js addon was run as a single instance. You can do more complex deployments with a load balancer like [HAProxy](https://www.haproxy.org/) and multiple instances of the same Node.js service on a single machine to take advantage of multiple CPU cores. But then you should also activate preforking in the Go addon for using several OS processes in parallel, which we didn't do.
 
 ## Related projects
 
 - [The official Stremio addon SDK for Node.js](https://github.com/Stremio/stremio-addon-sdk)
 - [Stremio addon SDK for Rust](https://github.com/sleeyax/stremio-addon-sdk)
+
+## Changes
+
+- GoFiber updated to v3
+- SubtitleHandler has been added
+- MetaHandler has been added
+- Extra Object defined for CatalogHandler
+- Added a workaround for populated configure page. Client must get "data" param from the URL since I couldn't find a workaround on fiber.static middleware.
+- Stale-Revalidate and Stale-If-Error has been added
+- Addon.Run command gets external fiber.Config as option
+- Turned cinemata to `another` meta client

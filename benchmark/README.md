@@ -85,7 +85,7 @@ set -euxo pipefail
 apt update
 apt upgrade -y
 apt install -y git
-git clone https://github.com/deflix-tv/go-stremio
+git clone https://github.com/xybydy/go-stremio
 cd go-stremio/benchmark
 
 # Set up Node.js

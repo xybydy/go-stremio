@@ -4,19 +4,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/deflix-tv/go-stremio"
+	"github.com/xybydy/go-stremio"
+	`github.com/xybydy/go-stremio/types`
 )
 
 var (
 	version = "0.1.0"
 
-	manifest = stremio.Manifest{
+	manifest = types.Manifest{
 		ID:          "com.example.blender-streams",
 		Name:        "Blender movie streams",
 		Description: "Stream addon for free movies that were made with Blender",
 		Version:     version,
 
-		ResourceItems: []stremio.ResourceItem{
+		ResourceItems: []types.ResourceItem{
 			{
 				Name:  "stream",
 				Types: []string{"movie"},
@@ -24,7 +25,7 @@ var (
 		},
 		Types: []string{"movie"},
 		// An empty slice is required for serializing to a JSON that Stremio expects
-		Catalogs: []stremio.CatalogItem{},
+		Catalogs: []types.CatalogItem{},
 
 		IDprefixes: []string{"tt"},
 	}
@@ -42,18 +43,18 @@ func main() {
 		HandleEtagStreams:  true,
 	}
 
-	addon, err := stremio.NewAddon(manifest, nil, streamHandlers, options)
+	addon, err := stremio.NewAddon(manifest, nil, streamHandlers, nil, nil, options)
 	if err != nil {
 		panic(err)
 	}
 
-	addon.Run(nil)
+	addon.Run(nil, nil)
 }
 
-func movieHandler(ctx context.Context, id string, userData interface{}) ([]stremio.StreamItem, error) {
+func movieHandler(ctx context.Context, id string, userData interface{}) ([]types.StreamItem, error) {
 	// We only serve Big Buck Bunny and Sintel
 	if id == "tt1254207" {
-		return []stremio.StreamItem{
+		return []types.StreamItem{
 			// Torrent stream
 			{
 				InfoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
@@ -69,7 +70,7 @@ func movieHandler(ctx context.Context, id string, userData interface{}) ([]strem
 			},
 		}, nil
 	} else if id == "tt1727587" {
-		return []stremio.StreamItem{
+		return []types.StreamItem{
 			{
 				InfoHash:  "08ada5a7a6183aae1e09d831df6748d566095a10",
 				Title:     "480p (torrent)",
@@ -81,5 +82,5 @@ func movieHandler(ctx context.Context, id string, userData interface{}) ([]strem
 			},
 		}, nil
 	}
-	return nil, stremio.NotFound
+	return nil, stremio.ErrNotFound
 }

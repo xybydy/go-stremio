@@ -4,26 +4,25 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"net/http"
 	"sync/atomic"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
+	`github.com/xybydy/go-stremio/types`
 	"go.uber.org/zap"
 
-	"github.com/deflix-tv/go-stremio"
-	"github.com/deflix-tv/go-stremio/pkg/cinemeta"
+	"github.com/xybydy/go-stremio"
 )
 
 var (
 	version = "0.1.0"
 
-	manifest = stremio.Manifest{
+	manifest = types.Manifest{
 		ID:          "com.example.blender-streams-custom",
 		Name:        "Custom Blender movie streams",
 		Description: "Stream addon for free movies that were made with Blender, customizable via user data",
 		Version:     version,
 
-		ResourceItems: []stremio.ResourceItem{
+		ResourceItems: []types.ResourceItem{
 			{
 				Name:  "stream",
 				Types: []string{"movie"},
@@ -31,17 +30,17 @@ var (
 		},
 		Types: []string{"movie"},
 		// An empty slice is required for serializing to a JSON that Stremio expects
-		Catalogs: []stremio.CatalogItem{},
+		Catalogs: []types.CatalogItem{},
 
 		IDprefixes: []string{"tt"},
 
-		BehaviorHints: stremio.BehaviorHints{
+		BehaviorHints: types.ManifestBehaviorHints{
 			Configurable:          true,
 			ConfigurationRequired: true,
 		},
 	}
 
-	streams = []stremio.StreamItem{
+	streams = []types.StreamItem{
 		// Torrent stream
 		{
 			InfoHash:  "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
@@ -106,12 +105,12 @@ func main() {
 		// If your embedded content contains the index.html directly, you can just set `http.FS(content)` here.
 		ConfigureHTMLfs: &stremio.PrefixedFS{
 			Prefix: "web",
-			FS:     http.FS(content),
+			FS:     content,
 		},
 	}
 
 	// Create addon
-	addon, err := stremio.NewAddon(manifest, nil, streamHandlers, options)
+	addon, err := stremio.NewAddon(manifest, nil, streamHandlers, nil, nil, options)
 	if err != nil {
 		logger.Fatal("Couldn't create new addon", zap.Error(err))
 	}
@@ -148,11 +147,11 @@ func main() {
 		<-stoppingChan
 		logger.Info("Addon stopping")
 	}()
-	addon.Run(stoppingChan)
+	addon.Run(stoppingChan, nil)
 }
 
 func createMovieHandler(logger *zap.Logger) stremio.StreamHandler {
-	return func(ctx context.Context, id string, userData interface{}) ([]stremio.StreamItem, error) {
+	return func(ctx context.Context, id string, userData interface{}) ([]types.StreamItem, error) {
 		// We only serve Big Buck Bunny
 		if id == "tt1254207" {
 			// No need to check if userData is nil or if the conversion worked, because our custom auth middleware did that already.
@@ -163,21 +162,21 @@ func createMovieHandler(logger *zap.Logger) stremio.StreamHandler {
 			// Return different streams depending on the user's preference
 			switch u.PreferredStreamType {
 			case "torrent":
-				return []stremio.StreamItem{streams[0]}, nil
+				return []types.StreamItem{streams[0]}, nil
 			case "http":
-				return []stremio.StreamItem{streams[1]}, nil
+				return []types.StreamItem{streams[1]}, nil
 			default:
 				return streams, nil
 			}
 		}
-		return nil, stremio.NotFound
+		return nil, stremio.ErrNotFound
 	}
 }
 
 // Custom middleware that blocks unauthorized requests.
 // Showcases the usage of user data when it's not passed from go-stremio.
 func createAuthMiddleware(addon *stremio.Addon, logger *zap.Logger) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		// We used "/:userData" when creating the auth middleware
 		userDataString := c.Params("userData", "")
 		if userDataString == "" {
@@ -216,9 +215,9 @@ func createAuthMiddleware(addon *stremio.Addon, logger *zap.Logger) fiber.Handle
 // Custom middleware that logs which movie (name) a user is asking for.
 // Showcases the usage of meta info in the context.
 func createMetaMiddleware(logger *zap.Logger) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		if meta, err := cinemeta.GetMetaFromContext(c.Context()); err != nil {
-			if err == cinemeta.ErrNoMeta {
+	return func(c fiber.Ctx) error {
+		if meta, err := stremio.GetMetaFromContext(c.Context()); err != nil {
+			if err == stremio.ErrNoMeta {
 				logger.Warn("Meta not found in context")
 			} else {
 				logger.Error("Couldn't get meta from context", zap.Error(err))
@@ -238,7 +237,7 @@ func createManifestCallback(logger *zap.Logger) stremio.ManifestCallback {
 	var countError int64
 	var countOK int64
 
-	return func(ctx context.Context, _ *stremio.Manifest, userData interface{}) int {
+	return func(ctx context.Context, _ *types.Manifest, userData interface{}) int {
 		// User provided no data
 		if userData == nil {
 			atomic.AddInt64(&countNoData, 1)
@@ -263,7 +262,7 @@ func createManifestCallback(logger *zap.Logger) stremio.ManifestCallback {
 }
 
 func createCustomEndpoint(logger *zap.Logger) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		logger.Info("A user called the ping endpoint")
 		return c.SendString("pong")
 	}

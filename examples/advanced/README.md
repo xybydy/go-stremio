@@ -17,7 +17,7 @@ This example is a more complex example showing some advanced features of go-stre
 
 ## Run
 
-1. `git clone https://github.com/Deflix-tv/go-stremio.git`
+1. `git clone https://github.com/xybydy/go-stremio.git`
 2. `cd ./go-stremio/examples/advanced`
 3. `go run .`
 

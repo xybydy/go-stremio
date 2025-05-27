@@ -6,7 +6,7 @@ The stream handler is set to handle requests for the type "movie" (Stremio passe
 
 ## Run
 
-1. `git clone https://github.com/Deflix-tv/go-stremio.git`
+1. `git clone https://github.com/xybydy/go-stremio.git`
 2. `cd ./go-stremio/examples/stream`
 3. `go run .`
 
